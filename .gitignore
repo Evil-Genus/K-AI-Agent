@@ -1,0 +1,18 @@
+# 后端配置文件
+K-AI/src/main/resources/application.yml
+K-AI/src/main/resources/application-*.yml
+K-AI/src/main/resources/application.properties
+K-AI/src/main/resources/application-*.properties
+
+# 前端配置文件 (已在前端.gitignore中配置，这里作为备份)
+K-AI-Fronted/.env*
+K-AI-Fronted/.env.local
+K-AI-Fronted/.env.development
+K-AI-Fronted/.env.production
+
+# 通用规则
+**/logs/
+**/.idea/workspace.xml
+**/.idea/tasks.xml
+**/target/
+**/.DS_Store

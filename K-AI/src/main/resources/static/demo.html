@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K-AI 流式对话测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .chat-container {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            min-height: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .user-message {
+            background-color: #e6f7ff;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            text-align: right;
+        }
+        .ai-message {
+            background-color: #f2f2f2;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            white-space: pre-wrap;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+        #message-input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #1890ff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #40a9ff;
+        }
+        .settings {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        .typing-indicator {
+            color: #999;
+            font-style: italic;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+<h1>K-AI 流式对话测试</h1>
+
+<div class="chat-container" id="chat-container"></div>
+
+<div class="input-container">
+    <input type="text" id="message-input" placeholder="请输入您的问题..." />
+    <button id="send-button">发送</button>
+</div>
+
+<div class="settings">
+    <div>
+        <label for="provider-input">服务提供商:</label>
+        <input type="text" id="provider-input" value="siliconflow" />
+    </div>
+    <div>
+        <label for="model-input">模型:</label>
+        <input type="text" id="model-input" value="Qwen/Qwen2.5-VL-72B-Instruct" />
+    </div>
+</div>
+
+<script>
+        const chatContainer = document.getElementById('chat-container');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const providerInput = document.getElementById('provider-input');
+        const modelInput = document.getElementById('model-input');
+
+        // 当前请求的控制器，用于取消请求
+        let controller = null;
+
+        // 添加消息到聊天容器
+        function addMessage(content, isUser) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = isUser ? 'user-message' : 'ai-message';
+            messageDiv.textContent = content;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return messageDiv;
+        }
+
+        // 发送消息并处理流式响应
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            // 添加用户消息
+            addMessage(message, true);
+
+            // 创建一个等待提示
+            const typingIndicator = document.createElement('div');
+            typingIndicator.className = 'typing-indicator';
+            typingIndicator.textContent = 'AI 正在思考...';
+            chatContainer.appendChild(typingIndicator);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            // 清空输入框
+            messageInput.value = '';
+
+            // 如果有活动的请求，取消它
+            if (controller) {
+                controller.abort();
+            }
+
+            // 创建新的AbortController
+            controller = new AbortController();
+
+            try {
+                // 准备请求参数
+                const requestBody = {
+                    message: message,
+                    provider: providerInput.value,
+                    model: modelInput.value,
+                    sessionId: Date.now().toString() // 简单生成一个会话ID
+                };
+
+                // 发送POST请求
+                const response = await fetch('/api/conversation/stream-chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: controller.signal
+                });
+
+                // 移除等待提示
+                chatContainer.removeChild(typingIndicator);
+
+                // 创建AI回复消息容器
+                const aiMessage = document.createElement('div');
+                aiMessage.className = 'ai-message';
+                aiMessage.textContent = '';
+                chatContainer.appendChild(aiMessage);
+
+                // 处理流式响应
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let responseText = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const text = decoder.decode(value);
+                    responseText += text;
+                    aiMessage.textContent = responseText;
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                }
+                
+                controller = null;
+                
+            } catch (error) {
+                // 如果不是取消请求导致的错误，显示错误消息
+                if (error.name !== 'AbortError') {
+                    // 移除等待提示
+                    if (typingIndicator.parentNode) {
+                        chatContainer.removeChild(typingIndicator);
+                    }
+                    
+                    // 显示错误消息
+                    const errorMessage = document.createElement('div');
+                    errorMessage.className = 'ai-message';
+                    errorMessage.style.color = 'red';
+                    errorMessage.textContent = `出错了: ${error.message}`;
+                    chatContainer.appendChild(errorMessage);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                    console.error('请求出错:', error);
+                }
+                
+                controller = null;
+            }
+        }
+        
+        // 绑定事件
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
